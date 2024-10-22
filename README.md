@@ -5,7 +5,7 @@ The basic structure of the code is as follows:
  1.**Driver files**: These files drive the simulation, by reading in command line parameters, reading data from input files, creating the necessary objects, calling subroutines implemented in other modules, organizing/storing the ouput data, and writing the results of the simulations to disk.
 In this repository, the driver files are indicated by the `_driver.py` prefix. Each one does a specific type of simulation:
 - `gkp_dynamics_driver.py`: Drives simulations of the bare stabilization protocol (i.e., the protocol defined in [the first paper](https://arxiv.org/abs/2405.05671)), with the option to include charge/flux noise, photon loss, and mistiming of the free segment.
-- `gkp_sqrtT_gate_mistimed_dynamics_driver_v2.py`: Drives simulations of the sqrt(T) gate protocol (to appear on ArXiv), in the presence of imperfect control (i.e., mistiming of the protocol segments)
+- `gkp_sqrtT_gate_mistimed_dynamics_driver_v2.py`: Drives simulations of the $$\sqrt{T}$$ gate protocol (to appear on ArXiv), in the presence of imperfect control (i.e., mistiming of the protocol segments)
 - `gkp_sqrtT_gate_noisy_dynamics_driver.py`: Drives simulations of the sqrt(T) gate protocol (to appear on ArXiv), in the presence of $$1/f$$ flux noise. The potential coefficients from the T-gate circuit elements should be read in from an input file
  
  2. **Computation/simulation files**: These files define classes and methods implmenting key aspects of the simulation, such as the "grid" basis we use and objects for doing the open system evolution via the Stochastic Schrodinger Equation (SSE) formalism. Sepcifically:
