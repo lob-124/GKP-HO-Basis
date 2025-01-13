@@ -39,7 +39,7 @@ from numpy.linalg      import *
 from matplotlib.pyplot import *
 
 from numpy.random      import randint, rand
-from numpy.fft         import fft
+from numpy.fft         import fft,ifft
 from gaussian_bath     import bath, get_J_ohmic
 
 from numba import njit
@@ -128,11 +128,11 @@ class ho_grid():
 			if dim=="default":
 			   dim = self.nrungs
 		   
-		  	# Get the annihilation operator in this well, and create X
+			# Get the annihilation operator in this well, and create X
 			well_annihilation_operator = get_annihilation_operator(dim,format=format)
 			X = (k)*sp.eye(dim)*self.grid_spacing + 1/sqrt(2)*(well_annihilation_operator+well_annihilation_operator.T)
 		   
-		    # Convert to dense matrix, if desired
+			# Convert to dense matrix, if desired
 			if format=="array":
 			   X = array(X)
 			return X
@@ -299,7 +299,7 @@ class ho_grid():
 		
 		We can also invert to obtain:
 				V^n = \\sum_{k}e^{2*pi*i*n*k/nwells}Vk_array[k]/nwells 
-				    = ifft(Vk_array,axis=0)[n]
+					= ifft(Vk_array,axis=0)[n]
 		
 		The advantage of working with the Fourier transform is that V is easy to invert in 
 			Fourier space (where it is block-diagonal)
@@ -371,15 +371,16 @@ class ho_grid():
 		Zarray_k = zeros((self.nwells,self.nrungs,self.nrungs),dtype=complex)
  
 		
-		Elist = zeros((self.nwells,self.nrungs),dtype=complex)
+		evals_V_list = zeros((self.nwells,self.nrungs),dtype=complex)
+		evals_Z_list = zeros((self.nwells,self.nrungs),dtype=complex)
 		U_list = zeros((self.nwells,self.nrungs,self.nrungs),dtype=complex)
-		U_ilist = zeros((self.nwells,self.nrungs,self.nrungs),dtype=complex)
+		U_inv_list = zeros((self.nwells,self.nrungs,self.nrungs),dtype=complex)
 		for k in range(0,self.nwells):
 			V = self.overlap_matrices_k[k]
 			
 			M_0 = V @ V + I0
 			Z_0 = I0 + V
-			Z = eye(self.nrungs) - inv(Z0) @ I0
+			Z = eye(self.nrungs) - inv(Z_0) @ I0
 
 			# Diagonalize V and Z, and sort their spectra
 			[evals_V,evecs_V] = eig(V)
@@ -393,19 +394,22 @@ class ho_grid():
 
 			# Store the change-of-basis matrices to the eigenbasis of Z, as well as 
 			#	the eigenvalues
-			U_list[k] = U
+			U_list[k] = evecs_Z_sorted
 			U_inv_list[k] = inv(evecs_Z_sorted) 
-			Elist[k] = evals_Z_sorted
+			evals_V_list[k] = evals_V_sorted
+			evals_Z_list[k] = evals_Z_sorted
 			
 			# Compute M in this well
-			M = inv(M0) @ V
+			M = inv(M_0) @ V
 			Marray_k[k] = M
 
-			
-		Emin = amin(Elist,axis=0) 
-        Emax = amax(Elist,axis=0)
-		n0 = argmax((Emin[1:]-Emax[:-1])*(Emax[:-1]<1e-8))
-		n0a = argmax((Amin[1:]-Amax[:-1])*(Amax[:-1]<0.1))
+
+		Vmin = amin(evals_V_list,axis=0) 
+		Vmax = amax(evals_V_list,axis=0)
+		Zmin = amin(evals_Z_list,axis=0) 
+		Zmax = amax(evals_Z_list,axis=0)
+		n0 = argmax((Zmin[1:]-Zmax[:-1])*(Zmax[:-1]<1e-8))
+		n0a = argmax((Vmin[1:]-Vmax[:-1])*(Vmax[:-1]<0.1))
 
 		v0 = zeros((self.nrungs,),dtype=complex)
 		v0[n0:]=1
@@ -416,7 +420,7 @@ class ho_grid():
 		P0 = diag(v0)
 		P0_a = diag(v0_a)
 		for k in range(0,self.nwells):
-			Z = Ulist[k] @ P0 @ Uilist[k]
+			Z = U_list[k] @ P0 @ U_inv_list[k]
 			Zarray_k[k] = Z
 		
 		

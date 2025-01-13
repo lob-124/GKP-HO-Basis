@@ -33,7 +33,6 @@ from matplotlib.pyplot import *
 from scipy.special import factorial,hermite
 from units import *
 from gaussian_bath import bath,get_J_ohmic
-from basic import tic,toc
 from scipy.interpolate import interp1d
 from numpy.random import rand
 import scipy.sparse as sp
@@ -65,7 +64,7 @@ def find_max_order(ratio,nrungs):
     return z + 3
 
 
-def get_V_matrix(sigma,r,n0,nrungs,max_order):
+def get_V_matrix(n0,sigma,r,nrungs,nwells,max_order):
     """
     Calculate V-matrix 
                 V[k,n] = \\psi_{k}(n\\sigma^2/2r), 
@@ -82,7 +81,7 @@ def get_V_matrix(sigma,r,n0,nrungs,max_order):
     return V 
 
 
-def get_U0_tensor(T,sigma,r,nrungs,nwells,max_order):
+def get_U0_tensor(T,V,sigma,r,nrungs,nwells,max_order):
     """
     Construct the U0 tensor, given by:
             U0[m,j,n,k]  = \\frac{ \\sigma^2}{\\sqrt{2 }r}\\sum_z\\frac{1}{z!}(\\frac{\\sigma^2}{4\\pi i r^2})^z
@@ -171,7 +170,7 @@ def get_quarter_cycle_matrix(grid_shape,sigma,r):
  
     
     """
-    nwells,nrungs = grid_shape    
+    nwells,nrungs = grid_shape
     n0    = nwells//2 
     ratio = sigma**2/(4*pi*1j*r**2)
     
@@ -179,7 +178,7 @@ def get_quarter_cycle_matrix(grid_shape,sigma,r):
 
     #Find the order at which to truncate the sums above, and compute the V matrix
     max_order = find_max_order(ratio,nrungs)
-    V = get_V_matrix(n0,sigma,r,max_order,nrungs)
+    V = get_V_matrix(n0,sigma,r,nrungs,nwells,max_order)
     
     # Compute the  T  matrix:
     #           T[j,k] = \sqrt{\frac{k}{2}}\delta_{j,k-1}-\sqrt{\frac{k+1}{2}}\delta_{j,k+1}
@@ -189,10 +188,10 @@ def get_quarter_cycle_matrix(grid_shape,sigma,r):
     #Compute the U0 tensor, which differs from U by a multiplication by the W tensor, which 
     #   has components   
     #               W[m,j,n,k] =  (-i)^{j-k+2mn}
-    U0 = get_U0_tensor(T,sigma,r,nrungs,nwells,max_order)
+    U0 = get_U0_tensor(T,V,sigma,r,nrungs,nwells,max_order)
     
     # Compute the aforementioned W tensor, and compute U
-    W = get_W_tensor((n0,nrungs,nwells))
+    W = get_W_tensor(n0,nrungs,nwells)
     U = U0*W
     
     # Reshape U to matrix 

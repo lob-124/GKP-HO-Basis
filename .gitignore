@@ -1,0 +1,6 @@
+Data/
+*.sh
+gkp_sqrtT_gate_dynamics_phi4_driver2.py
+*.ipynb
+__pycache__/
+.DS_Store

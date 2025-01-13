@@ -43,6 +43,8 @@ class LCJ_circuit():
         if mode == "pi":
             self.mode = 1 
             assert self.nwells%2 ==0,"nwells must be an even integer in pi mode"
+            print("Error: pi mode currently not supported")
+            exit(-1)
         elif mode == "0":
             self.mode = 0
             assert self.nwells%2 ==1,"nwells must be an odd integer in 0 mode"
@@ -67,8 +69,8 @@ class LCJ_circuit():
         self.k0 = (self.nwells- (not self.mode))//2
 
         self.params = array([self.nwells,self.nrungs,self.L,self.C,self.J,self.mode])
-        self.paramstr=f"LCJ_data__{self.nwells}_{self.nrungs}_{int(self.L/(1e-9*Henry))}"+
-                       f"_{int(self.C/(1e-15*Farad))}_{int(self.J/GHz*1e3)}_{self.mode}.npz"
+        self.paramstr=(f"LCJ_data__{self.nwells}_{self.nrungs}_{int(self.L/(1e-9*Henry))}"+
+                       f"_{int(self.C/(1e-15*Farad))}_{int(self.J/GHz*1e3)}_{self.mode}.npz")
         if data_path is None:
             self.DataPath = "../Data/LCJ_circuits/"+self.paramstr
         else:
@@ -86,7 +88,6 @@ class LCJ_circuit():
                 # HO grid object and block matrices
                 self.G = LCJ.G
                 self.quarter_cycle_matrix = LCJ.quarter_cycle_matrix
-                S = eigvals(self.quarter_cycle_matrix)
                 self.H_wl = LCJ.H_wl
                 self.S1_wl = LCJ.S1_wl
                 self.sz_wl = LCJ.sz_wl
@@ -109,7 +110,7 @@ class LCJ_circuit():
             
             # HO grid object and block matrices
             grid_spacing  =  self.well_spacing/self.sigma
-            self.G = ho_grid(self.nwells, self.nrungs, grid_spacing,offset=0.5*grid_spacing*self.mode)
+            self.G = ho_grid(self.nwells, self.nrungs, grid_spacing)#,offset=0.5*grid_spacing*self.mode)
             self.H_wl = self.compute_H_wl()
             self.S1_wl = self.compute_stabilizer_1_wl()
             self.sz_wl = self.compute_sz_wl()
@@ -599,13 +600,14 @@ class LCJ_circuit():
         # The Fourier series is even in phi, so only has cosine harmonics of phi/2   
         for k in range(0,self.nwells):
             exp_phi_half = self.G.get_exp_alpha_x_operator(0.5j*self.sigma, k,dim=self.nrungs+self.step_function_order)
+            exp_phi = exp_phi_half @ exp_phi_half
             Mat = exp_phi_half
             
             for n in range(0,self.step_function_order):
                 cos_phi_half      = 0.5*(Mat  + Mat.conj().T)
                 SZ_wl[k] += (4/pi)*cos_phi_half[:self.nrungs,:self.nrungs]/(2*n+1)*(-1)**n
 
-                Mat = Mat @ exp_phi_half2
+                Mat = Mat @ exp_phi
                 
         return SZ_wl
 
@@ -627,9 +629,52 @@ class LCJ_circuit():
             expectation value of stabilizer 2.
     
         """
+        psi_translated = roll(psi,self.nu,axis=0)
+
+        # numpy.roll wraps around to the beginning if elements roll past the end. This is not physical, 
+        #   so we zero out the re-introduced elements (as, realistically, they correspond to wells that 
+        #   were truncated from the simulation, and so the wavefvunction shouldn't have support in them)
+        psi_translated[:self.nu,:] = zeros((self.nu,self.nrungs),dtype=complex)
+
         
-        #Stabilizer 2 captures the overlap of the state with itself shifted by nu wells
-        return real(self.G.ip(psi,roll(psi,self.nu,axis=0))) 
+        #Stabilizer 2 is defined as cos(2*pi*nu*q/e), which corresponds to the real part of the above
+        return real(self.G.ip(psi,psi_translated)) 
+
+
+    def get_S2_generalized_expval(self,psi,num_wells):
+        """
+        Compute expectation value of a generalized stabilizer 2 for a state psi, 
+            expressed in grid basis.
+        Here, we allow the "generalized" S_2 to shift by n wells, rather than just self.nu 
+            wells.
+
+    
+        Parameters
+        ----------
+        psi : ndarray(nwells,nrungs)
+            Initial state, as a matrix in grid basis. psi0_eb[m,k] gives the amplitude
+            of the initial state in the kth harmonic of well m.
+        num_wells: int
+            Number of wells to translate by
+    
+        Returns
+        -------
+        EV : float
+            expectation value of generalized stabilizer 2.
+        """
+        psi_translated = roll(psi,num_wells,axis=0)
+
+        # numpy.roll wraps around to the beginning if elements roll past the end. This is not physical, 
+        #   so we zero out the re-introduced elements (as, realistically, they correspond to wells that 
+        #   were truncated from the simulation, and so the wavefvunction shouldn't have support in them)
+        if num_wells > 0:
+            psi_translated[:num_wells,:] = zeros((num_wells,self.nrungs),dtype=complex)
+        elif num_wells < 0:
+            psi_translated[num_wells:,:] = zeros((abs(num_wells),self.nrungs),dtype=complex)
+
+        # Return the inner product of the translated state with the original state
+        # NB: we don't assume the generalized S_2 to be cosine, so we don't take the real part
+        return self.G.ip(psi,psi_translated)
         
 
     def get_upper_rung_weight(self,psi,frac=.3):

@@ -174,11 +174,11 @@ class sse_evolver():
         
         # Sample from the pmf above
         random_number = self.rng.random()
-        event  = amin(where(cweights > random_number)[0])
-        psi_final = outcome_list[ind]   
+        event_ind  = amin(where(cweights > random_number)[0])
+        psi_final = outcome_list[event_ind]   
         psi_final = psi_final/self.norm(psi_final)
         
-        return psi_final,event
+        return psi_final,event_ind
         
       
     def sse_evolve(self,psi_initial):
