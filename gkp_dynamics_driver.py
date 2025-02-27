@@ -135,7 +135,7 @@ if __name__ == "__main__":
         H_list[n] = 1*H
 
         # Get and save flux operator for this well
-        Phi = LCJ_obj.get_flux_operator_w(n)
+        Phi = LCJ_obj.get_flux_operator_w(n-n0)
 
         # Compute and save the resistor jump operators in this well
         [Ld],[E,V]  =  B.get_ule_jump_operator(Xarray, H,return_ed=True)
