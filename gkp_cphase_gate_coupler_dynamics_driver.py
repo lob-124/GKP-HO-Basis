@@ -2,6 +2,7 @@ from basic             import
 from units             import *
 from numpy             import pi,eye,kron,exp,sqrt,ceil,log,real_if_close
 from numpy.linalg      import eigh,norm
+from numpy.fft         import fft,ifft
 from scipy.linalg      import expm
 from scipy.special     import jv
 
@@ -18,7 +19,7 @@ from secrets import randbits
 
 
 
-def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c):
+def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
     """
     Construct the operator delta = Phi_2^A - Phi_2^B.
 
@@ -54,6 +55,9 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c):
             Value of the inductance L_2^B
     J_c: float
             Value of the coupling Josepshon energy J_c
+    tol: float, optional
+            Desired tolerance for norm of the difference between the returned operator and the "true"
+                operator. Use to determine where to cut off the series solution. Defaults to 1e-15
 
 
     Returns
@@ -77,7 +81,7 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c):
         print("Error: solution to Kepler equation will diverge.")
         exit(-1)
     r = e*exp(sqrt(1-e**2))/(1+sqrt(1-e**2))
-    n_max = int(ceil(log(eps*(1-r))/log(abs(r))))
+    n_max = int(ceil(log(tol*(1-r))/log(abs(r))))   # Estimate max index using remainder of geometric series
 
     # Compute the series solution
     scaled_delta = M
@@ -196,8 +200,12 @@ if __name__ == "__main__":
     # =============================================================================
     # 4. Initialize system
 
-    # NB: We work in the direct product space of the two qubits. Operators on the combined space
-    #   are represented as kron(O_A,O_B) -- i.e., we put the A operators first.
+    # NB: We work in the direct product space of the two qubits. 
+    # Block-diagonal operators on the combined space are represented as 
+    #   kron(O_A,O_B) -- i.e., we put the A operators first.
+    # In general, operators have four indices: O(N_A,N_B,nu',nu) is the matrix element in 
+    #   A-well N_A and B-well N_B that goes from nu -> nu', where nu',nu are "combined" indices
+    #   of the Kronencker product
 
     # Get LCJ circuit objects for each qubit 
     LCJ_obj_A = LCJ_circuit(L_A,C_A,J_A,(N_wells_A,N_rungs_A),mode="0",load_data=1,save_data=1,
@@ -340,9 +348,34 @@ if __name__ == "__main__":
             
         return out 
 
+    @njit
+    def apply_k_array(O_k,psi):
+        """
+        Apply the k-space operator O (acting on both qubits) to the vector v.
+        Note that psi is assumed NOT to be in k-space.
+        """
+        fftpsi = fft(fft(psi,axis=0),axis=1)
+        Y = block_multiply_vector(O_k,fftpsi)
+        return ifft(ifft(Y,axis=1),axis=0)
 
 
-    # TODO: norms!
+    # Define inner product and norms on the combined Hilbert space
+
+    # Construct composite overlap matrices
+    overlap_A_shape = LCJ_obj_A.G.overlap_matrices_k.shape
+    overlap_B_shape = LCJ_obj_B.G.overlap_matrices_k.shape
+    overlap_combined = zeros((overlap_shape_A[0],overlap_shape_B[0],overlap_shape_A[1]*overlap_shape_B[1],
+                            overlap_shape_A[2]*overlap_shape_B[2]),dtype=complex128)
+    for i in range(overlap_shape_A[0]):
+        for j in range(overlap_shape_B[0]):
+            overlap_combined[i,j] = kron(LCJ_obj_A.G.overlap_matrices_k[i],LCJ_obj_B.overlap_matrices_k[j])
+
+    def block_inner_product(psi2,psi1):
+        Vpsi1 = apply_k_array(overlap_combined,psi1)
+        return sum(psi2.conj()*Vpsi1)
+
+    def block_norm(psi):
+        return real(sqrt(block_inner_product(v,v)))
 
 
 
