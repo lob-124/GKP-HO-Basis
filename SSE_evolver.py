@@ -51,9 +51,11 @@ class sse_evolver():
             
         if len(shape(Hamiltonian))>2:
             assert(shape(identity)==shape(Hamiltonian))
-            self.I = identity
+            #self.I = identity
+            self.I = None
         else:
-            self.I = eye(shape(Hamiltonian)[0],dtype=complex) 
+            #self.I = eye(shape(Hamiltonian)[0],dtype=complex) 
+            self.I = None
         
         if resolution_order<0 or not type(resolution_order==int):
             raise ValueError("resolution order must be nonnegative integer")

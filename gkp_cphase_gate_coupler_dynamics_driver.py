@@ -241,14 +241,14 @@ if __name__ == "__main__":
     for n_A in range(0,N_wells_A):
 
         # Flux operator and JJ potential for qubit A in current A-well
-        Phi_1_A = kron(LCJ_obj_A.get_flux_operator_w(n_A-n_0_A),I_B)
+        Phi_1_A = kron(LCJ_obj_A.get_flux_operator_w(n_A-n0_A),I_B)
         exp_Phi_1_A = expm(2*pi*1j*Phi_1_A/flux_quantum)
         JJ_pot_A = -J_A*(exp_Phi_1_A + exp_Phi_1_A.conj().T)/2
 
         for n_B in range(0,N_wells_B):
 
             # Flux operator and JJ potential for qubit B in current B-well
-            Phi_1_B = kron(I_A,LCJ_obj_B.get_flux_operator_w(n_B-n_0_B))
+            Phi_1_B = kron(I_A,LCJ_obj_B.get_flux_operator_w(n_B-n0_B))
             exp_Phi_1_B = expm(2*pi*1j*Phi_1_B/flux_quantum)
             JJ_pot_B = -J_B*(exp_Phi_1_B + exp_Phi_1_B.conj().T)/2
 
@@ -349,13 +349,13 @@ if __name__ == "__main__":
         return out 
 
     @njit
-    def apply_k_array(O_k,psi):
+    def apply_k_array(O,psi):
         """
         Apply the k-space operator O (acting on both qubits) to the vector v.
         Note that psi is assumed NOT to be in k-space.
         """
         fftpsi = fft(fft(psi,axis=0),axis=1)
-        Y = block_multiply_vector(O_k,fftpsi)
+        Y = block_multiply_vector(O,fftpsi)
         return ifft(ifft(Y,axis=1),axis=0)
 
 
@@ -376,6 +376,48 @@ if __name__ == "__main__":
 
     def block_norm(psi):
         return real(sqrt(block_inner_product(v,v)))
+
+
+    ### Construct SSE solver for the gate segment
+    jump_ops_stab = [L_list_A,L_list_B]
+    SSE_solver_stab = sse_evolver(H_list,array(jump_ops_stab), time_increment_stab,
+        resolution_order=drive_resolution_order,hc_method=block_hc,
+        dot_method_matrix=block_multiply_matrix,dot_method_vector=block_multiply_vector,
+        norm_method = block_norm,expm_method=block_expm,seed=seed_SSE)
+
+
+
+    # =============================================================================
+    # 6. Set the initial state of each qubit
+    
+    rng = default_rng(seed_init)
+
+    # Sample bloch angles of each qubit
+    u_A , v_A = rng.uniform(low=0.0,high=1.0,size=2)
+    theta_A , phi_A = arccos(2*u_A-1) , 2*pi*v_A
+    u_B , v_B = rng.uniform(low=0.0,high=1.0,size=2)
+    theta_B , phi_B = arccos(2*u_B-1) , 2*pi*v_B 
+
+
+    # Construct initial state as
+    #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
+    # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
+    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    for n_A in range(N_wells_A):
+        well_index_A = n_A - n0_A
+        if well_index_A % nu_A == 0:
+            psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+        elif well_index_A % nu_A == 1:
+            psi_A = sin(theta/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+
+        for n_B in range(N_wells_B):
+            well_index_B = n_B - n0_B        
+            if well_index_B % nu_B == 0:
+                psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+            elif well_ind % nu == 1:
+                psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+     
+    psi0 = psi0/block_norm(psi0)
 
 
 
