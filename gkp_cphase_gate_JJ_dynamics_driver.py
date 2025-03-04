@@ -143,8 +143,8 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
     try:
         s_11 = sqrt(1-c_11**2)
 
-        c_01 = (r_00*sx_B - r_11*(c_11*sx_A+s_11*sy_A))/(r_10*(sz_A+sz_B))
-        s_01 = (r_00*sy_B + r_11*(c_11*sy_A-s_11*sx_A))/(r_10*(sz_A+sz_B))
+        c_01 = (r_00*sx_B - r_11*(c_11*sx_A+s_11*sy_A))/(r_01*(sz_A+sz_B))
+        s_01 = (r_00*sy_B + r_11*(c_11*sy_A-s_11*sx_A))/(r_01*(sz_A+sz_B))
         c_10 = (r_00*sx_A - r_11*(c_11*sx_B+s_11*sy_B))/(r_10*(sz_A+sz_B))
         s_10 = (r_00*sy_A + r_11*(c_11*sy_B-s_11*sx_B))/(r_10*(sz_A+sz_B))
 
@@ -154,10 +154,13 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
     except:
         s_11 = -sqrt(1-c_11**2)
 
-        c_01 = (r_00*sx_B - r_11*(c_11*sx_A+s_11*sy_A))/(r_10*(sz_A+sz_B))
-        s_01 = (r_00*sy_B + r_11*(c_11*sy_A-s_11*sx_A))/(r_10*(sz_A+sz_B))
+        c_01 = (r_00*sx_B - r_11*(c_11*sx_A+s_11*sy_A))/(r_01*(sz_A+sz_B))
+        s_01 = (r_00*sy_B + r_11*(c_11*sy_A-s_11*sx_A))/(r_01*(sz_A+sz_B))
         c_10 = (r_00*sx_A - r_11*(c_11*sx_B+s_11*sy_B))/(r_10*(sz_A+sz_B))
         s_10 = (r_00*sy_A + r_11*(c_11*sy_B-s_11*sx_B))/(r_10*(sz_A+sz_B))
+
+        eqn = 2*r_11*r_00*c_11 + 2*r_10*r_01*(c_01*c_10 + s_01*s_10)
+        assert isclose(eqn,sx_AB)
 
     
     return array([r_00,r_01*(c_01 + 1j*s_01),r_10*(c_10 + 1j*s_10),r_11*(c_11 + 1j*s_11)])
