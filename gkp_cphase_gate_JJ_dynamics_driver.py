@@ -1,4 +1,4 @@
-from basic             import 
+#from basic             import 
 from units             import *
 from numpy             import pi,eye,kron,exp,sqrt,ceil,log,real_if_close
 from numpy.linalg      import eigh,norm
@@ -18,6 +18,8 @@ from numba import njit
 from struct import pack
 from secrets import randbits
 
+from sys import exit
+
 
 
 def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
@@ -28,7 +30,8 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
                     
                     M = E - e*sin(E)
         
-        where M and e can be expressed in terms of L_1_A, L_2_A, L_1_B, L_2_B.
+        where M and e can be expressed in terms of L_1_A, L_2_A, L_1_B, L_2_B, and J_c
+        .
 
     We use the series solution for the Kepler equation:
 
@@ -79,7 +82,7 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
     # The series solution for the Kepler equation converges as a geometric series with ratio r. 
     #   Compute this ratio, and from it determine when to cutoff the sum above.
     if abs(e) >= 1:
-        print("Error: solution to Kepler equation will diverge.")
+        print("Error: solution to Kepler equation will diverge with e = {}.".format(e))
         exit(-1)
     r = e*exp(sqrt(1-e**2))/(1+sqrt(1-e**2))
     n_max = int(ceil(log(tol*(1-r))/log(abs(r))))   # Estimate max index using remainder of geometric series
@@ -309,7 +312,7 @@ if __name__ == "__main__":
     # Logical z operators for the two qubits
     sigma_z_A = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
     sigma_z_B = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
-    sigma_Z_AB = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
+    sigma_z_AB = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
 
 
     # Construct Hamiltonian and jump operators 
@@ -330,7 +333,7 @@ if __name__ == "__main__":
 
             # Construct the operators delta = Phi_2^A - Phi_2^B and Sigma = Phi_2^A + Phi_2^B
             delta = get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c)
-            Sigma = (2/(alpha*L_1_A))*Phi_1_A + (2/(alpha*L_1_B))*Phi_1_B
+            Sigma = (2/(alpha*L_1_A))*Phi_1_A + (2/(alpha*L_1_B))*Phi_1_B - (beta/alpha)*delta
 
             # Construct Phi_2^A and Phi_2^B out of Sigma and delta
             Phi_2_A = (Sigma + delta)/2
@@ -341,9 +344,9 @@ if __name__ == "__main__":
             JJ_pot_coupler = -J_c*(exp_coupler + exp_coupler.conj().T)/2
 
             # Construct the Hamiltonian
-            _H = (Phi_1_A-Phi_2_A)@(Phi_1_A-Phi_2_A)/(2*L_1_A) + Phi_2_A@Phi_2_A/(2*L_2_A) + JJ_pot_A
+            _H = ((Phi_1_A-Phi_2_A)@(Phi_1_A-Phi_2_A)/(2*L_1_A) + Phi_2_A@Phi_2_A/(2*L_2_A) + JJ_pot_A
                     + (Phi_1_B-Phi_2_B)@(Phi_1_B-Phi_2_B)/(2*L_1_B) + Phi_2_B@Phi_2_B/(2*L_2_B) + JJ_pot_B
-                    + JJ_pot_coupler + cap_term_A + cap_term_B
+                    + JJ_pot_coupler + cap_term_A + cap_term_B)
             H_list_AB[n_A,N_B] = array(_H)
 
             # Construct the jump operators
@@ -382,7 +385,7 @@ if __name__ == "__main__":
         """
         out = zeros((A.shape[0],A.shape[1],A.shape[2],B.shape[3]),dtype=complex128)
         for i in range(A.shape[0]):
-            for j in range(A.shape[1])
+            for j in range(A.shape[1]):
                 out[i,j] = A[i,j] @ B[i,j]
         return out
        
@@ -394,7 +397,7 @@ if __name__ == "__main__":
         """
         out = zeros((A.shape[0],A.shape[1],A.shape[2]),dtype=complex128)
         for i in range(A.shape[0]):
-            for j in range(A.shape[1])
+            for j in range(A.shape[1]):
                 out[i,j] = A[i,j] @ B[i,j]
         return out
         
@@ -479,39 +482,8 @@ if __name__ == "__main__":
 
 
     # =============================================================================
-    # 6. Set the initial state of each qubit
+    # 6. Define observables
     
-    rng = default_rng(seed_init)
-
-    # Sample bloch angles of each qubit
-    u_A , v_A = rng.uniform(low=0.0,high=1.0,size=2)
-    theta_A , phi_A = arccos(2*u_A-1) , 2*pi*v_A
-    u_B , v_B = rng.uniform(low=0.0,high=1.0,size=2)
-    theta_B , phi_B = arccos(2*u_B-1) , 2*pi*v_B 
-
-
-    # Construct initial state as
-    #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
-    # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
-    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
-    for n_A in range(N_wells_A):
-        well_index_A = n_A - n0_A
-        if well_index_A % nu_A == 0:
-            psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-        elif well_index_A % nu_A == 1:
-            psi_A = sin(theta/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-
-        for n_B in range(N_wells_B):
-            well_index_B = n_B - n0_B        
-            if well_index_B % nu_B == 0:
-                psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-            elif well_ind % nu == 1:
-                psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-     
-    psi0 = psi0/block_norm(psi0)
-
-
-
     # Define functions for the spin expectations 
 
     # Functions for the quarter cycle evolution on each qubit separately. Assumed to be the identity on the
@@ -555,7 +527,7 @@ if __name__ == "__main__":
         #Compute <S_y> by applying S gate, then Hadamard, then computing <S_z>
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
-            for n_B in range(N_wells_B)
+            for n_B in range(N_wells_B):
                 psi_y[n_A,n_B] = S_mats_A[n_A] @ psi[n_A,n_B]
         psi_y =  apply_QC_A(psi_y)
         S_y = parity_A*block_expectation(sigma_z_A,psi_y)/norm_sq
@@ -576,7 +548,7 @@ if __name__ == "__main__":
         #Compute <S_y> by applying S gate, then Hadamard, then computing <S_z>
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
-            for n_B in range(N_wells_B)
+            for n_B in range(N_wells_B):
                 psi_y[n_A,n_B] = S_mats_B[n_B] @ psi[n_A,n_B]
         psi_y =  apply_QC_B(psi_y)
         S_y = parity_B*block_expectation(sigma_z_B,psi_y)/norm_sq
@@ -598,7 +570,7 @@ if __name__ == "__main__":
         #Compute <S_y> by applying S gate, then Hadamard, then computing <S_z>
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
-            for n_B in range(N_wells_B)
+            for n_B in range(N_wells_B):
                 psi_y[n_A,n_B] = S_mats_A[n_A] @ S_mats_B[n_B] @ psi[n_A,n_B]
         psi_y =  apply_QC_B(psi_y)
         psi_y = apply_QC_A(psi_y)
@@ -606,6 +578,41 @@ if __name__ == "__main__":
         
         return S_x , S_y, S_z
 
+
+
+
+
+    # =============================================================================
+    # 7. Set the initial state of the combined system
+    
+    rng = default_rng(seed_init)
+
+    # Sample bloch angles of each qubit
+    u_A , v_A = rng.uniform(low=0.0,high=1.0,size=2)
+    theta_A , phi_A = arccos(2*u_A-1) , 2*pi*v_A
+    u_B , v_B = rng.uniform(low=0.0,high=1.0,size=2)
+    theta_B , phi_B = arccos(2*u_B-1) , 2*pi*v_B 
+
+
+    # Construct initial state as
+    #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
+    # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
+    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    for n_A in range(N_wells_A):
+        well_index_A = n_A - n0_A
+        if well_index_A % nu_A == 0:
+            psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+        elif well_index_A % nu_A == 1:
+            psi_A = sin(theta/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+
+        for n_B in range(N_wells_B):
+            well_index_B = n_B - n0_B        
+            if well_index_B % nu_B == 0:
+                psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+            elif well_ind % nu == 1:
+                psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+     
+    psi0 = psi0/block_norm(psi0)
 
 
 
