@@ -22,7 +22,7 @@ from sys import exit
 
 
 
-def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
+def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_C,tol=1e-15):
     """
     Construct the operator delta = Phi_2^A - Phi_2^B.
 
@@ -30,7 +30,7 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
                     
                     M = E - e*sin(E)
         
-        where M and e can be expressed in terms of L_1_A, L_2_A, L_1_B, L_2_B, and J_c
+        where M and e can be expressed in terms of L_1_A, L_2_A, L_1_B, L_2_B, and J_C
         .
 
     We use the series solution for the Kepler equation:
@@ -57,8 +57,8 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
             Value of the inductance L_1^B
     L_1_B: float
             Value of the inductance L_2^B
-    J_c: float
-            Value of the coupling Josepshon energy J_c
+    J_C: float
+            Value of the coupling Josepshon energy J_C
     tol: float, optional
             Desired tolerance for norm of the difference between the returned operator and the "true"
                 operator. Use to determine where to cut off the series solution. Defaults to 1e-15
@@ -77,7 +77,7 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
 
     # Define M and e for the Kepler equation above. See notes for details
     M = 4*pi/(flux_quantum*L_1_A*(alpha+beta))*Phi_1_A - 4*pi/(flux_quantum*L_1_B*(alpha-beta))*Phi_1_B
-    e = - 16*pi**2*alpha*J_c/(flux_quantum**2*(alpha**2-beta**2))
+    e = - 16*pi**2*alpha*J_C/(flux_quantum**2*(alpha**2-beta**2))
 
     # The series solution for the Kepler equation converges as a geometric series with ratio r. 
     #   Compute this ratio, and from it determine when to cutoff the sum above.
@@ -99,6 +99,9 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c,tol=1e-15):
 
     # The series computes 2*pi*delta/phi_0, so we re-scale to obtain delta
     return scaled_delta*flux_quantum/(2*pi)
+
+
+
 
 
 
@@ -138,11 +141,11 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
 
     # Now compute the sines and cosines of the three phases alpha_01,alpha_10,alpha_11
 
+    # First, the cosine of alpha_11
     c_11 = (sx_AB - sy_AB)/(4*r_11*r_00)
 
     # We have sin(alpha_11) = +- sqrt(1-cos(alpha_11)^2). We'll try the + sign first one, and if that 
     #   doesn't work we try the - sign.
-
     try:
         s_11 = sqrt(1-c_11**2)
 
@@ -298,14 +301,14 @@ if __name__ == "__main__":
 
     # Identity operators on the two qubits. Used to upgrade single-qubit operators to operators on the 
     #   combined Hilbert space
-    I_A = eye(*Phi_1_A.shape)
-    I_B = eye(*Phi_1_B.shape)
+    I_A = eye(N_rungs_A)
+    I_B = eye(N_rungs_B)
 
     # Charge operators for each qubit (same in all wells)
     Q_A  = 2j*e_charge *LCJ_obj_A.get_d_dphi_operator_w()
-    cap_term_A = Q_A @ Q_A /(2*C_A)
+    cap_term_A = kron(Q_A @ Q_A /(2*C_A),I_B)
     Q_B  = 2j*e_charge *LCJ_obj_B.get_d_dphi_operator_w()
-    cap_term_B = Q_B @ Q_B  / (2*C_B)
+    cap_term_B = kron(I_A,Q_B @ Q_B  / (2*C_B))
     Xarray = array([kron(Q_A,I_B) , kron(I_A,Q_B)]) # Coupling terms between each qubit and the bath
 
 
@@ -315,7 +318,13 @@ if __name__ == "__main__":
     sigma_z_AB = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
 
 
-    # Construct Hamiltonian and jump operators 
+    # Constants alpha and beta appearing in formulae for phi_2^A and phi_2^B
+    alpha = 1/L_1_A + 1/L_2_A + 1/L_1_B + 1/L_2_B
+    beta  = 1/L_1_A + 1/L_2_A - 1/L_1_B - 1/L_2_B
+
+    # Construct Hamiltonian, jump operators, and logical z operators 
+    # print("For n_rungs = {}".format(N_rungs_A))
+    # t1 = perf_counter()
     for n_A in range(0,N_wells_A):
 
         # Flux operator and JJ potential for qubit A in current A-well
@@ -332,22 +341,36 @@ if __name__ == "__main__":
 
 
             # Construct the operators delta = Phi_2^A - Phi_2^B and Sigma = Phi_2^A + Phi_2^B
-            delta = get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_c)
+            delta = get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_C)
             Sigma = (2/(alpha*L_1_A))*Phi_1_A + (2/(alpha*L_1_B))*Phi_1_B - (beta/alpha)*delta
 
             # Construct Phi_2^A and Phi_2^B out of Sigma and delta
             Phi_2_A = (Sigma + delta)/2
             Phi_2_B = (Sigma - delta)/2
 
+
             # Construct the coupling JJ potential
             exp_coupler = expm(2*pi*1j*delta/flux_quantum)
-            JJ_pot_coupler = -J_c*(exp_coupler + exp_coupler.conj().T)/2
+            JJ_pot_coupler = -J_C*(exp_coupler + exp_coupler.conj().T)/2
+
+            # print(Phi_1_A.shape)
+            # print(Phi_2_A.shape)
+            # print("-"*25)
+            # print(Phi_1_B.shape)
+            # print(Phi_2_B.shape)
+            # print("*"*25)
+            # print(JJ_pot_A.shape)
+            # print(JJ_pot_B.shape)
+            # print(JJ_pot_coupler.shape)
+            # print("+"*25)
+            # print(cap_term_A.shape)
+            # print(cap_term_B.shape)
 
             # Construct the Hamiltonian
             _H = ((Phi_1_A-Phi_2_A)@(Phi_1_A-Phi_2_A)/(2*L_1_A) + Phi_2_A@Phi_2_A/(2*L_2_A) + JJ_pot_A
                     + (Phi_1_B-Phi_2_B)@(Phi_1_B-Phi_2_B)/(2*L_1_B) + Phi_2_B@Phi_2_B/(2*L_2_B) + JJ_pot_B
                     + JJ_pot_coupler + cap_term_A + cap_term_B)
-            H_list_AB[n_A,N_B] = array(_H)
+            H_list_AB[n_A,n_B] = array(_H)
 
             # Construct the jump operators
             [L_A,L_B] = B.get_ule_jump_operator(Xarray,_H)
@@ -358,7 +381,12 @@ if __name__ == "__main__":
             # Construct the sigma_z spin operators
             sigma_z_A[n_A,n_B] = kron(LCJ_obj_A.sz_wl[n_A],I_B)
             sigma_z_B[n_A,n_B] = kron(I_A,LCJ_obj_B.sz_wl[n_B])
-            sigma_Z_AB[n_A,n_B] = kron(LCJ_obj_A.sz_wl[n_A],LCJ_obj_B.sz_wl[n_B])
+            sigma_z_AB[n_A,n_B] = kron(LCJ_obj_A.sz_wl[n_A],LCJ_obj_B.sz_wl[n_B])
+
+    # t2 = perf_counter()
+    # print("time elapsed: {}".format(t2-t1))
+    # print("average per well: {}".format((t2-t1)/(N_wells_A*N_wells_B)))
+    # print("-"*20)
 
 
     # TODO: compute gate time
@@ -366,13 +394,14 @@ if __name__ == "__main__":
     revival_time_A = 1/omega_A
     revival_time_B = 1/omega_B
 
+    
 
 
     # =============================================================================
     # 5. Initialize SSE solver(s) 
 
     # Time increment that each instance of sse_evolve evolves over
-    time_increment_gate = T_gate/(2**output_resolution_order_stab)
+    time_increment_gate = T_gate/(2**output_resolution_order)
 
 
     # Define inner product, hermitian conjugation, matrix exponentiation and identity operations on the 
@@ -450,12 +479,12 @@ if __name__ == "__main__":
     # Construct composite overlap matrices
     overlap_A_shape = LCJ_obj_A.G.overlap_matrices_k.shape
     overlap_B_shape = LCJ_obj_B.G.overlap_matrices_k.shape
-    overlap_combined = zeros((overlap_shape_A[0],overlap_shape_B[0],overlap_shape_A[1]*overlap_shape_B[1],
-                            overlap_shape_A[2]*overlap_shape_B[2]),dtype=complex128)
-    for i in range(overlap_shape_A[0]):
-        for j in range(overlap_shape_B[0]):
-            overlap_combined[i,j] = kron(LCJ_obj_A.G.overlap_matrices_k[i],LCJ_obj_B.overlap_matrices_k[j])
-
+    overlap_combined = zeros((overlap_A_shape[0],overlap_B_shape[0],overlap_A_shape[1]*overlap_B_shape[1],
+                            overlap_A_shape[2]*overlap_B_shape[2]),dtype=complex128)
+    for i in range(overlap_A_shape[0]):
+        for j in range(overlap_B_shape[0]):
+            overlap_combined[i,j] = kron(LCJ_obj_A.G.overlap_matrices_k[i],LCJ_obj_B.G.overlap_matrices_k[j])
+    
     @njit
     def block_inner_product(psi2,psi1):
         Vpsi1 = apply_k_array(overlap_combined,psi1)
@@ -463,7 +492,7 @@ if __name__ == "__main__":
 
     @njit
     def block_norm(psi):
-        return real(sqrt(block_inner_product(v,v)))
+        return real(sqrt(block_inner_product(psi,psi)))
 
 
     # Block expectation of an operator
@@ -473,11 +502,12 @@ if __name__ == "__main__":
 
 
     ### Construct SSE solver for the gate segment
-    jump_ops_stab = [L_list_A,L_list_B]
-    SSE_solver_stab = sse_evolver(H_list,array(jump_ops_stab), time_increment_stab,
+    jump_ops_gate = [L_list_A,L_list_B]
+    SSE_solver_gate = sse_evolver(H_list_AB,array(jump_ops_gate), time_increment_gate,
         resolution_order=drive_resolution_order,hc_method=block_hc,
         dot_method_matrix=block_multiply_matrix,dot_method_vector=block_multiply_vector,
         norm_method = block_norm,expm_method=block_expm,seed=seed_SSE)
+
 
 
 
@@ -502,15 +532,15 @@ if __name__ == "__main__":
     # Generate S-gate matrices (used in computing sigma_y)
     S_mats_A = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex128)
     for n_A in range(0,N_wells_A):
-        well_ind = n - n0_A
+        well_ind = n_A - n0_A
         H = LCJ_obj_A.get_H_w(well_ind)
-        S_mats_A[n_A] = kron(expm(-1j*H*revival_time_A/hbar),I_A)
+        S_mats_A[n_A] = kron(expm(-1j*H*revival_time_A/hbar),I_B)   # NB: this syntax assigns all B-well indices too
 
     S_mats_B = zeros((N_wells_B,N_wells_B,N_rungs_B*N_rungs_B,N_rungs_B*N_rungs_B),dtype=complex128)
     for n_B in range(0,N_wells_B):
-        well_ind = n - n0_B
+        well_ind = n_B - n0_B
         H = LCJ_obj_B.get_H_w(well_ind)
-        S_mats_B[n_B] = kron(I_A,expm(-1j*H*revival_time_B/hbar))
+        S_mats_B[:,n_B] = kron(I_A,expm(-1j*H*revival_time_B/hbar))
 
 
     def spin_expectations_A(psi):
@@ -528,11 +558,11 @@ if __name__ == "__main__":
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
             for n_B in range(N_wells_B):
-                psi_y[n_A,n_B] = S_mats_A[n_A] @ psi[n_A,n_B]
+                psi_y[n_A,n_B] = S_mats_A[n_A,n_B] @ psi[n_A,n_B]
         psi_y =  apply_QC_A(psi_y)
         S_y = parity_A*block_expectation(sigma_z_A,psi_y)/norm_sq
         
-        return S_x , S_y, S_z
+        return real(S_x) , real(S_y), real(S_z)
 
     def spin_expectations_B(psi):
         #NB! The spin has the wrong sign if n0 % 2 == 1.
@@ -549,11 +579,11 @@ if __name__ == "__main__":
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
             for n_B in range(N_wells_B):
-                psi_y[n_A,n_B] = S_mats_B[n_B] @ psi[n_A,n_B]
+                psi_y[n_A,n_B] = S_mats_B[n_A,n_B] @ psi[n_A,n_B]
         psi_y =  apply_QC_B(psi_y)
         S_y = parity_B*block_expectation(sigma_z_B,psi_y)/norm_sq
         
-        return S_x , S_y, S_z
+        return real(S_x) , real(S_y), real(S_z)
 
     def spin_expectations_AB(psi):
         #NB! The spin has the wrong sign if n0 % 2 == 1.
@@ -564,26 +594,26 @@ if __name__ == "__main__":
         
         #Compute <S_x> by applying Hadamard then computing <S_z>
         psi_x = apply_QC_B(psi)
-        psi_x = apply_QC_A(psi)
+        psi_x = apply_QC_A(psi_x)
         S_x = parity_A*parity_B*block_expectation(sigma_z_AB,psi_x)/norm_sq
         
         #Compute <S_y> by applying S gate, then Hadamard, then computing <S_z>
         psi_y = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
         for n_A in range(N_wells_A):
             for n_B in range(N_wells_B):
-                psi_y[n_A,n_B] = S_mats_A[n_A] @ S_mats_B[n_B] @ psi[n_A,n_B]
+                psi_y[n_A,n_B] = S_mats_A[n_A,n_B] @ S_mats_B[n_A,n_B] @ psi[n_A,n_B]
         psi_y =  apply_QC_B(psi_y)
         psi_y = apply_QC_A(psi_y)
         S_y = parity_A*parity_B*block_expectation(sigma_z_AB,psi_y)/norm_sq
         
-        return S_x , S_y, S_z
+        return real(S_x) , real(S_y), real(S_z)
 
 
 
 
 
     # =============================================================================
-    # 7. Set the initial state of the combined system
+    # 7. Set the initial state of the combined system. We
     
     rng = default_rng(seed_init)
 
@@ -594,26 +624,94 @@ if __name__ == "__main__":
     theta_B , phi_B = arccos(2*u_B-1) , 2*pi*v_B 
 
 
-    # Construct initial state as
-    #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
-    # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
+    # spins_A = array([sin(theta_A)*cos(phi_A),sin(theta_A)*sin(phi_A),cos(theta_A)])
+    # spins_B = array([sin(theta_B)*cos(phi_B),sin(theta_B)*sin(phi_B),cos(theta_B)])
+
+    # print("Expected spin expectations:")
+    # print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(*spins_A))
+    # print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(*spins_B))
+    # print("<s_x^As_x^A>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(*(spins_A*spins_B)))
+
+
+    # # Construct initial state as
+    # #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
+    # # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
+    # #t1 = perf_counter()
+    # psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    # for n_A in range(N_wells_A):
+    #     well_index_A = n_A - n0_A
+    #     if well_index_A % nu_A == 0:
+    #         psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+    #     elif well_index_A % nu_A == 1:
+    #         psi_A = sin(theta_A/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+
+    #     for n_B in range(N_wells_B):
+    #         well_index_B = n_B - n0_B        
+    #         if well_index_B % nu_B == 0:
+    #             psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+    #         elif well_index_B % nu_B == 1:
+    #             psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+     
+    # Prepare in the entangled GHZ
+    sign = 1
     psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
     for n_A in range(N_wells_A):
         well_index_A = n_A - n0_A
-        if well_index_A % nu_A == 0:
-            psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-        elif well_index_A % nu_A == 1:
-            psi_A = sin(theta/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-
         for n_B in range(N_wells_B):
             well_index_B = n_B - n0_B        
-            if well_index_B % nu_B == 0:
-                psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-            elif well_ind % nu == 1:
-                psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-     
+            if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 0):
+                psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+            elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 1):
+                psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+
     psi0 = psi0/block_norm(psi0)
 
+    # Prepare in the entangled triplet/singlet
+    sign = -1
+    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    for n_A in range(N_wells_A):
+        well_index_A = n_A - n0_A
+        for n_B in range(N_wells_B):
+            well_index_B = n_B - n0_B        
+            if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 1):
+                psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+            elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 0):
+                psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+
+    psi0 = psi0/block_norm(psi0)
+
+
+
+    print("Expected spin expectations (singlet):")
+    print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(0,0,0))
+    print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(0,0,0))
+    print("<s_x^As_x^A>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(sign,sign,-1))
+
+
+    print("Computed values:")
+
+    t1 = perf_counter()
+    spins_A_comp = spin_expectations_A(psi0)
+    t2 = perf_counter()
+    A_time = t2-t1
+
+    t1 = perf_counter()
+    spins_B_comp = spin_expectations_B(psi0)
+    t2 = perf_counter()
+    B_time = t2-t1
+
+    t1 = perf_counter()
+    spins_AB_comp = spin_expectations_AB(psi0)
+    t2 = perf_counter()
+    AB_time = t2-t1
+
+    print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(*spins_A_comp))
+    print("  time elapsed: {}".format(A_time))
+    print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(*spins_B_comp))
+    print("  time elapsed: {}".format(B_time))
+    print("<s_x^As_x^B>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(*spins_AB_comp))
+    print("  time elapsed: {}".format(AB_time))
+    print("-"*50)
 
 
 

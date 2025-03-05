@@ -50,7 +50,7 @@ class sse_evolver():
             self.mode = "static"
             
         if len(shape(Hamiltonian))>2:
-            assert(shape(identity)==shape(Hamiltonian))
+            #assert(shape(identity)==shape(Hamiltonian))
             #self.I = identity
             self.I = None
         else:
