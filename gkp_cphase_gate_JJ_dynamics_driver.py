@@ -1,7 +1,7 @@
 #from basic             import 
 from units             import *
-from numpy             import pi,eye,kron,exp,sqrt,ceil,log,real_if_close
-from numpy.linalg      import eigh,norm
+from numpy             import pi,eye,kron,exp,sqrt,ceil,log,real_if_close,vdot
+from numpy.linalg      import eigh,eigvalsh,norm
 from numpy.fft         import fft,ifft
 from scipy.linalg      import expm
 from scipy.special     import jv
@@ -27,7 +27,7 @@ def get_delta_operator(Phi_1_A,Phi_1_B,L_1_A,L_2_A,L_1_B,L_2_B,J_C,tol=1e-15):
     Construct the operator delta = Phi_2^A - Phi_2^B.
 
     This operator obeys a form of the Kepler equation:
-                    
+                     
                     M = E - e*sin(E)
         
         where M and e can be expressed in terms of L_1_A, L_2_A, L_1_B, L_2_B, and J_C
@@ -139,6 +139,8 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
     r_10 = sqrt(1-sz_A+sz_B-sz_AB)/2
     r_11 = sqrt(1-sz_A-sz_B+sz_AB)/2
 
+    print("Magnitudes: {} {} {} {}".format(r_00,r_01,r_10,r_11))
+
     # Now compute the sines and cosines of the three phases alpha_01,alpha_10,alpha_11
 
     # First, the cosine of alpha_11
@@ -155,7 +157,9 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
         s_10 = (r_00*sy_A + r_11*(c_11*sy_B-s_11*sx_B))/(r_10*(sz_A+sz_B))
 
         eqn = 2*r_11*r_00*c_11 + 2*r_10*r_01*(c_01*c_10 + s_01*s_10)
+        #print("First attempt: {} vs {} ".format(eqn,sx_AB))
         assert isclose(eqn,sx_AB)
+
         
     except:
         s_11 = -sqrt(1-c_11**2)
@@ -166,7 +170,8 @@ def get_logical_state(sigmas_A,sigmas_B,sigmas_AB):
         s_10 = (r_00*sy_A + r_11*(c_11*sy_B-s_11*sx_B))/(r_10*(sz_A+sz_B))
 
         eqn = 2*r_11*r_00*c_11 + 2*r_10*r_01*(c_01*c_10 + s_01*s_10)
-        assert isclose(eqn,sx_AB)
+        #print("Second attempt: {} vs {}".format(eqn,sx_AB))
+        #assert isclose(eqn,sx_AB)
 
     
     return array([r_00,r_01*(c_01 + 1j*s_01),r_10*(c_10 + 1j*s_10),r_11*(c_11 + 1j*s_11)])
@@ -218,6 +223,10 @@ if __name__ == "__main__":
         seed_init = int(randbits(31))
 
 
+    # The desired phase in the CPHASE gate. Might make this a command line parameter later...
+    target_phase = pi
+
+
 
     # =============================================================================
     # 1. Parameters
@@ -250,7 +259,7 @@ if __name__ == "__main__":
 
     # =============================================================================
     # 3. Initialize bath
-    #		We assume the bath is the same for both qubits - but the coupling may not be!
+    #       We assume the bath is the same for both qubits - but the coupling may not be!
 
     # Generate spectral function for an ohmic bath
     spectral_function = get_J_ohmic(Temp, Lambda,omega0=1)
@@ -288,7 +297,9 @@ if __name__ == "__main__":
     LCJ_obj_B = LCJ_circuit(L_B,C_B,J_B,(N_wells_B,N_rungs_B),mode="0",load_data=1,save_data=1,
         data_path=LCJ_save_path)
 
-    # Hamiltonian (as list of matrices, since its block diagonal)
+    # Hamiltonians (as list of matrices, since its block diagonal)
+    H_list_A  = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
+    H_list_B  = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
     H_list_AB = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
 
     # # Energies and eigenvectors, in case we need it
@@ -317,6 +328,10 @@ if __name__ == "__main__":
     sigma_z_B = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
     sigma_z_AB = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
 
+    # Matrcies for Stabilizer 1 on the qubits
+    S1_A = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
+    S1_B = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B,N_rungs_A*N_rungs_B),dtype=complex)
+
 
     # Constants alpha and beta appearing in formulae for phi_2^A and phi_2^B
     alpha = 1/L_1_A + 1/L_2_A + 1/L_1_B + 1/L_2_B
@@ -332,12 +347,24 @@ if __name__ == "__main__":
         exp_Phi_1_A = expm(2*pi*1j*Phi_1_A/flux_quantum)
         JJ_pot_A = -J_A*(exp_Phi_1_A + exp_Phi_1_A.conj().T)/2
 
+        # LCJ Hamiltonian (without JJ) for qubit A
+        H_list_A[n_A,:] = kron(LCJ_obj_A.H_wl[n_A],I_B)
+
+        # Stabilizer 1 matrix for qubit A
+        S1_A[n_A,:] = kron(LCJ_obj_A.S1_wl[n_A],I_B)
+
         for n_B in range(0,N_wells_B):
 
             # Flux operator and JJ potential for qubit B in current B-well
             Phi_1_B = kron(I_A,LCJ_obj_B.get_flux_operator_w(n_B-n0_B))
             exp_Phi_1_B = expm(2*pi*1j*Phi_1_B/flux_quantum)
             JJ_pot_B = -J_B*(exp_Phi_1_B + exp_Phi_1_B.conj().T)/2
+
+            # LCJ Hamiltonian (without JJ) for qubit B
+            H_list_B[:,n_B] = kron(I_A,LCJ_obj_B.H_wl[n_B])
+
+            # Stabilizer 1 matrix for qubit B
+            S1_B[:,n_B] = kron(I_A,LCJ_obj_B.S1_wl[n_B])
 
 
             # Construct the operators delta = Phi_2^A - Phi_2^B and Sigma = Phi_2^A + Phi_2^B
@@ -353,23 +380,10 @@ if __name__ == "__main__":
             exp_coupler = expm(2*pi*1j*delta/flux_quantum)
             JJ_pot_coupler = -J_C*(exp_coupler + exp_coupler.conj().T)/2
 
-            # print(Phi_1_A.shape)
-            # print(Phi_2_A.shape)
-            # print("-"*25)
-            # print(Phi_1_B.shape)
-            # print(Phi_2_B.shape)
-            # print("*"*25)
-            # print(JJ_pot_A.shape)
-            # print(JJ_pot_B.shape)
-            # print(JJ_pot_coupler.shape)
-            # print("+"*25)
-            # print(cap_term_A.shape)
-            # print(cap_term_B.shape)
-
             # Construct the Hamiltonian
-            _H = ((Phi_1_A-Phi_2_A)@(Phi_1_A-Phi_2_A)/(2*L_1_A) + Phi_2_A@Phi_2_A/(2*L_2_A) + JJ_pot_A
-                    + (Phi_1_B-Phi_2_B)@(Phi_1_B-Phi_2_B)/(2*L_1_B) + Phi_2_B@Phi_2_B/(2*L_2_B) + JJ_pot_B
-                    + JJ_pot_coupler + cap_term_A + cap_term_B)
+            _H = JJ_pot_coupler#((Phi_1_A-Phi_2_A)@(Phi_1_A-Phi_2_A)/(2*L_1_A) + Phi_2_A@Phi_2_A/(2*L_2_A) + JJ_pot_A
+                 #   + (Phi_1_B-Phi_2_B)@(Phi_1_B-Phi_2_B)/(2*L_1_B) + Phi_2_B@Phi_2_B/(2*L_2_B) + JJ_pot_B
+                 #   + JJ_pot_coupler + cap_term_A + cap_term_B)
             H_list_AB[n_A,n_B] = array(_H)
 
             # Construct the jump operators
@@ -383,16 +397,45 @@ if __name__ == "__main__":
             sigma_z_B[n_A,n_B] = kron(I_A,LCJ_obj_B.sz_wl[n_B])
             sigma_z_AB[n_A,n_B] = kron(LCJ_obj_A.sz_wl[n_A],LCJ_obj_B.sz_wl[n_B])
 
-    # t2 = perf_counter()
-    # print("time elapsed: {}".format(t2-t1))
-    # print("average per well: {}".format((t2-t1)/(N_wells_A*N_wells_B)))
-    # print("-"*20)
 
+    # Compute gate time needed for the desired phase, from ground state energy in well combos (0,0) and (0,1)
+    ground_state_00 = eigvalsh(H_list_AB[n0_A,n0_B])[0]
+    ground_state_01 = eigvalsh(H_list_AB[n0_A,n0_B+1])[0]
+    T_gate = target_phase*hbar/(ground_state_01-ground_state_00)
 
-    # TODO: compute gate time
-    T_gate = 1*nanosecond
-    revival_time_A = 1/omega_A
-    revival_time_B = 1/omega_B
+    # Compute the phi^2 revival times with the JJ present, dy diagonalizing in well combos (0,0) and (0,2), and 
+    #   (0,0) and (2,0)
+    ground_state_20 = eigvalsh(H_list_AB[n0_A+2,n0_B])[0]
+    eps_L_A = (ground_state_20 - ground_state_00)/4
+    revival_time_A = pi*hbar/(2*eps_L_A)
+
+    ground_state_02 = eigvalsh(H_list_AB[n0_A,n0_B+2])[0]
+    eps_L_B = (ground_state_02 - ground_state_00)/4
+    revival_time_B = pi*hbar/(2*eps_L_B)
+
+    # Lastly, compute the revival times in the absence of the JJ. This is needed to ensure phase coherence once
+    #   the JJ has been disconnected
+    ground_state_noJJ_A_0 = eigvalsh(LCJ_obj_A.H_wl[n0_A])[0]
+    ground_state_noJJ_A_1 = eigvalsh(LCJ_obj_A.H_wl[n0_A+1])[0]
+    eps_L_noJJ_A = ground_state_noJJ_A_1 - ground_state_noJJ_A_0
+    revival_time_noJJ_A = pi*hbar/(2*eps_L_noJJ_A)
+
+    ground_state_noJJ_B_0 = eigvalsh(LCJ_obj_B.H_wl[n0_B])[0]
+    ground_state_noJJ_B_1 = eigvalsh(LCJ_obj_B.H_wl[n0_B+1])[0]
+    eps_L_noJJ_B = ground_state_noJJ_B_1 - ground_state_noJJ_B_0
+    revival_time_noJJ_B = pi*hbar/(2*eps_L_noJJ_B)
+
+    # Compute the residual phi^2 time needed to align the phases.
+    # Note that if the qubits are niot identical, these times may not be the same. In such, we pick the 
+    #   larger of the two (DO WE WANT TO CHANGE THIS IN THE FUTURE MAYBE????????????)
+    num_revivals_A = T_gate/revival_time_A
+    t_phi2_A = (4 - (num_revivals_A % 4))*revival_time_noJJ_A
+    num_revivals_B = T_gate/revival_time_B
+    t_phi2_B = (4 - (num_revivals_B % 4))*revival_time_noJJ_B
+
+    t_phi2 = max(t_phi2_A,t_phi2_B)
+
+    print("HELL YEAH")
 
     
 
@@ -401,7 +444,9 @@ if __name__ == "__main__":
     # 5. Initialize SSE solver(s) 
 
     # Time increment that each instance of sse_evolve evolves over
-    time_increment_gate = T_gate/(2**output_resolution_order)
+    num_output_points = 2**output_resolution_order
+    time_increment_gate = T_gate/num_output_points
+    time_increment_phi2 = t_phi2/num_output_points
 
 
     # Define inner product, hermitian conjugation, matrix exponentiation and identity operations on the 
@@ -501,12 +546,18 @@ if __name__ == "__main__":
         return block_inner_product(psi,block_multiply_vector(O,psi))
 
 
-    ### Construct SSE solver for the gate segment
-    jump_ops_gate = [L_list_A,L_list_B]
-    SSE_solver_gate = sse_evolver(H_list_AB,array(jump_ops_gate), time_increment_gate,
+    ### Construct SSE solver for the gate segment and phi^2 segment
+    jump_ops = [L_list_A,L_list_B]
+    SSE_solver_gate = sse_evolver(H_list_AB,array(jump_ops), time_increment_gate,
         resolution_order=drive_resolution_order,hc_method=block_hc,
         dot_method_matrix=block_multiply_matrix,dot_method_vector=block_multiply_vector,
         norm_method = block_norm,expm_method=block_expm,seed=seed_SSE)
+
+
+    SSE_solver_phi2 = sse_evolver(H_list_A+H_list_B,array(jump_ops), time_increment_phi2,
+        resolution_order=drive_resolution_order,hc_method=block_hc,
+        dot_method_matrix=block_multiply_matrix,dot_method_vector=block_multiply_vector,
+        norm_method = block_norm,expm_method=block_expm,seed=seed_SSE+1)
 
 
 
@@ -534,13 +585,13 @@ if __name__ == "__main__":
     for n_A in range(0,N_wells_A):
         well_ind = n_A - n0_A
         H = LCJ_obj_A.get_H_w(well_ind)
-        S_mats_A[n_A] = kron(expm(-1j*H*revival_time_A/hbar),I_B)   # NB: this syntax assigns all B-well indices too
+        S_mats_A[n_A] = kron(expm(-1j*H*revival_time_noJJ_A/hbar),I_B)   # NB: this syntax assigns all B-well indices too
 
     S_mats_B = zeros((N_wells_B,N_wells_B,N_rungs_B*N_rungs_B,N_rungs_B*N_rungs_B),dtype=complex128)
     for n_B in range(0,N_wells_B):
         well_ind = n_B - n0_B
         H = LCJ_obj_B.get_H_w(well_ind)
-        S_mats_B[:,n_B] = kron(I_A,expm(-1j*H*revival_time_B/hbar))
+        S_mats_B[:,n_B] = kron(I_A,expm(-1j*H*revival_time_noJJ_B/hbar))
 
 
     def spin_expectations_A(psi):
@@ -608,117 +659,256 @@ if __name__ == "__main__":
         
         return real(S_x) , real(S_y), real(S_z)
 
+    def stabilizer_expectations_A(psi):
+        """
+        Compute expectations of stabilizers for qubit A in the state psi
+    
+        """
+        # Compute <S_1> by applying the matrices for S_1
+        S_1 = real(block_inner_product(psi,block_multiply_vector(S1_A,psi)))
+
+        # Compute <S_2> by translating the state and taking the overlap with the original state
+        psi_translated = roll(psi,int(nu_A),axis=0)
+
+        # numpy.roll wraps around to the beginning if elements roll past the end. This is not physical, 
+        #   so we zero out the re-introduced elements (as, realistically, they correspond to wells that 
+        #   were truncated from the simulation, and so the wavefvunction shouldn't have support in them)
+        psi_translated[:int(nu_A)] = zeros((int(nu_A),N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+ 
+        #Stabilizer 2 is defined as cos(2*pi*nu*q/e), which corresponds to the real part of the above
+        S_2 =  real(block_inner_product(psi,psi_translated)) 
+
+        return S_1,S_2
+
+    def stabilizer_expectations_B(psi):
+        """
+        Compute expectations of stabilizers for qubit B in the state psi
+    
+        """
+        # Compute <S_1> by applying the matrices for S_1
+        S_1 = real(block_inner_product(psi,block_multiply_vector(S1_B,psi)))
+
+        # Compute <S_2> by translating the state and taking the overlap with the original state
+        psi_translated = roll(psi,int(nu_B),axis=1)
+
+        # numpy.roll wraps around to the beginning if elements roll past the end. This is not physical, 
+        #   so we zero out the re-introduced elements (as, realistically, they correspond to wells that 
+        #   were truncated from the simulation, and so the wavefvunction shouldn't have support in them)
+        psi_translated[:,:int(nu_B)] = zeros((N_wells_A,int(nu_B),N_rungs_A*N_rungs_B),dtype=complex)
+ 
+        #Stabilizer 2 is defined as cos(2*pi*nu*q/e), which corresponds to the real part of the above
+        S_2 =  real(block_inner_product(psi,psi_translated)) 
+
+        return S_1,S_2
+
 
 
 
 
     # =============================================================================
-    # 7. Set the initial state of the combined system. We
+    # 7. Set the initial state of the combined system.
     
     rng = default_rng(seed_init)
 
     # Sample bloch angles of each qubit
     u_A , v_A = rng.uniform(low=0.0,high=1.0,size=2)
-    theta_A , phi_A = arccos(2*u_A-1) , 2*pi*v_A
+    theta_A , phi_A = pi/2,0#arccos(2*u_A-1) , 2*pi*v_A
     u_B , v_B = rng.uniform(low=0.0,high=1.0,size=2)
-    theta_B , phi_B = arccos(2*u_B-1) , 2*pi*v_B 
+    theta_B , phi_B = pi/2,0#arccos(2*u_B-1) , 2*pi*v_B 
 
 
-    # spins_A = array([sin(theta_A)*cos(phi_A),sin(theta_A)*sin(phi_A),cos(theta_A)])
-    # spins_B = array([sin(theta_B)*cos(phi_B),sin(theta_B)*sin(phi_B),cos(theta_B)])
+    # Construct initial state as a product state of two
+    #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
+    # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
+    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    for n_A in range(N_wells_A):
+        well_index_A = n_A - n0_A
+        if well_index_A % nu_A == 0:
+            psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
+        elif well_index_A % nu_A == 1:
+            psi_A = sin(theta_A/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
 
-    # print("Expected spin expectations:")
-    # print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(*spins_A))
-    # print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(*spins_B))
-    # print("<s_x^As_x^A>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(*(spins_A*spins_B)))
+        for n_B in range(N_wells_B):
+            well_index_B = n_B - n0_B        
+            if well_index_B % nu_B == 0:
+                psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+            elif well_index_B % nu_B == 1:
+                psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+     
+    # Calculate the expected logical state after the gate
+    exp_logical_state = array([cos(theta_A/2)*cos(theta_B/2),cos(theta_A/2)*sin(theta_B/2)*exp(1j*phi_B),
+                            sin(theta_A/2)*cos(theta_B/2)*exp(1j*phi_A),sin(theta_A/2)*sin(theta_B/2)*exp(1j*(phi_A+phi_B-target_phase))] )
+
+    spins_A  = spin_expectations_A(psi0)
+    spins_B  = spin_expectations_B(psi0)
+    spins_AB = spin_expectations_AB(psi0)
+    print(spins_A)
+    print(spins_B)
+    print(spins_AB)
+
+    from numpy import angle
+    psi0_logical = get_logical_state(spins_A,spins_B,spins_AB)
+    print(psi0_logical)
+    print("Fidelity: {}".format(abs(vdot(exp_logical_state,psi0_logical))**2))
+    print("Phase of 01 component: {}".format(angle(psi0_logical[1])))
+    print("Phase of 10 component: {}".format(angle(psi0_logical[2])))
+    print("Phase of 11 component: {}".format(angle(psi0_logical[3])))
+    print('-'*50)
+
+    # print("Spins:")
+    # print("Expected   (A):   {} {} {}".format(sin(theta_A)*cos(phi_A),sin(theta_A)*sin(phi_A),cos(theta_A)))
+    # print("Calculated (A):   {} {} {}".format(*spins_A))
+    # print("Expected   (B):   {} {} {}".format(sin(theta_B)*cos(phi_B),sin(theta_B)*sin(phi_B),cos(theta_B)))
+    # print("Calculated (B):   {} {} {}".format(*spins_B))
+    # print("Expected   (AB):  {} {} {}".format(sin(theta_A)*cos(phi_A)*sin(theta_B)*cos(phi_B),sin(theta_A)*sin(phi_A)*sin(theta_B)*sin(phi_B),cos(theta_A)*cos(theta_B)))
+    # print("Calculated (AB):  {} {} {}".format(*spins_AB))
+    # print("")
 
 
-    # # Construct initial state as
-    # #   cos(theta/2)|0,0,0>> + exp(i*phi)sin(theta/2)|0,0,1>>
-    # # We assume TWO logical states encoded in the wells with indices congruent to 0,1 mod nu
-    # #t1 = perf_counter()
+    calc_logical_state = get_logical_state(spins_A,spins_B,spins_AB)
+    # print("Logical states: ")
+    # print("Expected:    {}".format(exp_logical_state))
+    # print("Calculated:  {}".format(calc_logical_state))
+
+    # Prepare in the entangled GHZ
+    # sign = 1
     # psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
     # for n_A in range(N_wells_A):
     #     well_index_A = n_A - n0_A
-    #     if well_index_A % nu_A == 0:
-    #         psi_A = cos(theta_A/2)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-    #     elif well_index_A % nu_A == 1:
-    #         psi_A = sin(theta_A/2)*exp(1j*phi_A)*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))
-
     #     for n_B in range(N_wells_B):
     #         well_index_B = n_B - n0_B        
-    #         if well_index_B % nu_B == 0:
-    #             psi0[n_A,n_B,0] = psi_A*cos(theta_B/2)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-    #         elif well_index_B % nu_B == 1:
-    #             psi0[n_A,n_B,0] = psi_A*sin(theta_B/2)*exp(1j*phi_B)*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-     
-    # Prepare in the entangled GHZ
-    sign = 1
-    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
-    for n_A in range(N_wells_A):
-        well_index_A = n_A - n0_A
-        for n_B in range(N_wells_B):
-            well_index_B = n_B - n0_B        
-            if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 0):
-                psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-            elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 1):
-                psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+    #         if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 0):
+    #             psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+    #         elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 1):
+    #             psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
 
-    psi0 = psi0/block_norm(psi0)
+    # psi0 = psi0/block_norm(psi0)
 
-    # Prepare in the entangled triplet/singlet
-    sign = -1
-    psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
-    for n_A in range(N_wells_A):
-        well_index_A = n_A - n0_A
-        for n_B in range(N_wells_B):
-            well_index_B = n_B - n0_B        
-            if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 1):
-                psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
-            elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 0):
-                psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+    # # Prepare in the entangled triplet/singlet
+    # sign = -1
+    # psi0 = zeros((N_wells_A,N_wells_B,N_rungs_A*N_rungs_B),dtype=complex)
+    # for n_A in range(N_wells_A):
+    #     well_index_A = n_A - n0_A
+    #     for n_B in range(N_wells_B):
+    #         well_index_B = n_B - n0_B        
+    #         if (well_index_A % nu_A == 0) and (well_index_B % nu_B == 1):
+    #             psi0[n_A,n_B,0] = exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
+    #         elif (well_index_A % nu_A == 1) and (well_index_B % nu_B == 0):
+    #             psi0[n_A,n_B,0] = sign*exp(-(well_index_A)**2*LCJ_obj_A.sigma**2/(8*LCJ_obj_A.r**2))*exp(-(well_index_B)**2*LCJ_obj_B.sigma**2/(8*LCJ_obj_B.r**2))
 
-    psi0 = psi0/block_norm(psi0)
-
-
-
-    print("Expected spin expectations (singlet):")
-    print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(0,0,0))
-    print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(0,0,0))
-    print("<s_x^As_x^A>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(sign,sign,-1))
-
-
-    print("Computed values:")
-
-    t1 = perf_counter()
-    spins_A_comp = spin_expectations_A(psi0)
-    t2 = perf_counter()
-    A_time = t2-t1
-
-    t1 = perf_counter()
-    spins_B_comp = spin_expectations_B(psi0)
-    t2 = perf_counter()
-    B_time = t2-t1
-
-    t1 = perf_counter()
-    spins_AB_comp = spin_expectations_AB(psi0)
-    t2 = perf_counter()
-    AB_time = t2-t1
-
-    print("<s_x^A>: {}  <s_y^A>: {}  <s_z^A>: {}".format(*spins_A_comp))
-    print("  time elapsed: {}".format(A_time))
-    print("<s_x^B>: {}  <s_y^B>: {}  <s_z^B>: {}".format(*spins_B_comp))
-    print("  time elapsed: {}".format(B_time))
-    print("<s_x^As_x^B>: {}  <s_y^As_y^B>: {}  <s_z^As_z^B>: {}".format(*spins_AB_comp))
-    print("  time elapsed: {}".format(AB_time))
-    print("-"*50)
+    # psi0 = psi0/block_norm(psi0)
 
 
 
 
+    # =============================================================================
+    # 8. Evolve!
 
 
+    # Expectations of logical operators
+    spins_A   = zeros((N_samples,2*num_output_points,3))
+    spins_B   = zeros((N_samples,2*num_output_points,3))
+    spins_AB  = zeros((N_samples,2*num_output_points,3))
 
+    # Fidelities with expected logical state
+    fidelities = zeros((N_samples,2*num_output_points))
+
+    
+    Jump_record = []        #Record of quantum jumps occurring
+    
+    for sample_num in range(0,N_samples):
         
+        jumplist = zeros((0,2)) # Lists of quantum jumps 
+        
+        psi = array(psi0) # Deep copy the initial state
 
+        # First, the gate segment (i.e., with the JJ connected)
+        for output_index in range(num_output_points):
+
+            # Evolve state with SSE, and record jumps (if any)
+            psi,jumps =  SSE_solver_gate.sse_evolve(psi)
+            if len(jumps)>0:    
+                jumps[:,0] = jumps[:,0] + output_index*time_increment_gate 
+                jumplist = concatenate((jumplist,jumps))
+
+            # Compute expectations of spins
+            spins_A[sample_num,output_index]  = spin_expectations_A(psi)
+            spins_B[sample_num,output_index]  = spin_expectations_B(psi)
+            spins_AB[sample_num,output_index] = spin_expectations_AB(psi)
+
+            # Compute fidelity 
+            psi_logical = get_logical_state(spins_A[sample_num,output_index],spins_B[sample_num,output_index],
+                                                spins_AB[sample_num,output_index])
+            fidelities[sample_num,output_index] = abs(vdot(exp_logical_state,psi_logical))**2
+
+            stabs_A = stabilizer_expectations_A(psi)
+            stabs_B = stabilizer_expectations_B(psi)
+            print("  Stabilizers:")
+            print("    A: {} , {}".format(*stabs_A))
+            print("    B: {} , {}".format(*stabs_B))
+            print("  Fidelity: {}".format(fidelities[sample_num,output_index]))
+            print("Phase of 01 component: {}".format(angle(psi_logical[1])))
+            print("Phase of 10 component: {}".format(angle(psi_logical[2])))
+            print("Phase of 11 component: {}".format(angle(psi_logical[3])))
+
+
+        print("*"*100)
+
+        # Second, the phi^2 segment (i.e., no JJ)
+        for output_index2 in range(num_output_points):
+
+            # Evolve state with SSE, and record jumps (if any)
+            psi,jumps =  SSE_solver_phi2.sse_evolve(psi)
+            if len(jumps)>0:    
+                jumps[:,0] = jumps[:,0] + output_index*time_increment_gate 
+                jumplist = concatenate((jumplist,jumps))
+
+            # Compute expectations of spins
+            spins_A[sample_num,num_output_points+output_index2]  = spin_expectations_A(psi)
+            spins_B[sample_num,num_output_points+output_index2]  = spin_expectations_B(psi)
+            spins_AB[sample_num,num_output_points+output_index2] = spin_expectations_AB(psi)
+
+            # Compute fidelity 
+            psi_logical = get_logical_state(spins_A[sample_num,output_index],spins_B[sample_num,output_index],
+                                                spins_AB[sample_num,output_index])
+            fidelities[sample_num,num_output_points+output_index2] = abs(vdot(exp_logical_state,psi_logical))**2
+
+            stabs_A = stabilizer_expectations_A(psi)
+            stabs_B = stabilizer_expectations_B(psi)
+            print("  Stabilizers:")
+            print("    A: {} , {}".format(*stabs_A))
+            print("    B: {} , {}".format(*stabs_B))
+            print("  Fidelity: {}".format(fidelities[sample_num,num_output_points+output_index2]))
+            print("Phase of 01 component: {}".format(angle(psi_logical[1])))
+            print("Phase of 10 component: {}".format(angle(psi_logical[2])))
+            print("Phase of 11 component: {}".format(angle(psi_logical[3])))
+
+
+
+    # =============================================================================
+    # 9. Write the data out to disk
+
+    save_file = data_save_path + "data-omega_A={}GHz-J_A={}GHz-nu_A={}-gamma_A={}GHz-omega_B={}GHz-J_B={}GHz-nu_B={}-gamma_B={}GHz-J_C={}GHz-f_A={}-f_B={}T={}K.dat".format(*argv[1:13])
+    with open(save_file,'wb') as f:
+        #Store simulation params
+        params = pack("ii",N_samples,output_resolution_order)
+        f.write(params)
+
+        times = pack("ff",T_gate/second,t_phi2/second)
+        f.write(times)
+
+        for i in range(N_samples):
+            #f.write(pack("f"*num_points,*S1s[i][j*num_points:(j+1)*num_points]))
+            #f.write(pack("f"*num_points,*S2s[i][j*num_points:(j+1)*num_points]))
+            for k in range(2*num_output_points):
+                f.write(pack("f"*3,*spins_A[i,j]))
+                f.write(pack("f"*3,*spins_B[i,j]))
+                f.write(pack("f"*3,*spins_AB[i,j]))
+                f.write(pack("d",fidelities[i,j]))
+            
+            num_jumps = Jump_record[i].shape[0]
+            f.write(pack("i",num_jumps))
+            if num_jumps > 0:
+                for j in range(num_jumps):
+                    f.write(pack("ff",*Jump_record[i][j])) 
 

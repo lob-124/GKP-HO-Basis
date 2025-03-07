@@ -20,7 +20,7 @@ N_rungs_A=10
 N_wells_B=31
 N_rungs_B=10
 drive_resolution_order=20
-output_resolution_order=0
+output_resolution_order=4
 LCJ_save_path=./Data/LCJ-Data/
 data_save_path=./Data/Simulation-Results/
 
